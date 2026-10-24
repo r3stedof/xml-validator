@@ -33,15 +33,23 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
   // The parser runs locally. No custom entity resolver is configured; external resources are never fetched.
   const issues: XmlIssue[] = [];
   try {
-    const parser = new DOMParser({
+      const parser = new DOMParser({
       locator: {},
       errorHandler: {
-        warning: (_message: string) => { /* Non-fatal parser warnings do not invalidate well-formed XML. */ },
-        error: (message: string) => { issues.push(makeIssue(message, source, null, null)); },
-        fatalError: (message: string) => { issues.push(makeIssue(message, source, null, null)); }
-      }
+        warning: (message: string) => {
+          issues.push(makeIssue(message, source, null, null));
+        },
+        error: (message: string) => {
+          issues.push(makeIssue(message, source, null, null));
+        },
+        fatalError: (message: string) => {
+          issues.push(makeIssue(message, source, null, null));
+        },
+      },
     });
+
     const document = parser.parseFromString(source, 'application/xml');
+
     const root = document.documentElement;
     const parserIssues = issues;
     if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
