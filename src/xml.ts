@@ -47,35 +47,31 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
         },
       },
 
-    const document = parser.parseFromString(source, 'text/xml');
+        const document = parser.parseFromString(source, 'text/xml');
 
     const root = document.documentElement;
     const parserIssues = issues;
-   if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
+    
+    if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
       
-      // Если массив ошибок пуст, но сработал триггер parsererror:
       if (!unique.length) {
-        // Проверяем, нет ли текста ошибки внутри самого тега <parsererror>
         const parsererrorText = root && root.nodeName === 'parsererror' ? root.textContent : null;
         unique.push(makeIssue(parsererrorText || 'Не удалось разобрать XML-документ.', source));
       }
       return { status: 'invalid', summary: `XML содержит ошибки (${unique.length}).`, issues: unique, checkedAt, bytes };
     }
-    // A doctype may be present, but no external entity resolver is enabled.
+    
     return { status: 'valid', summary: 'Документ успешно разобран. Синтаксис XML корректен.', issues: [], checkedAt, bytes };
-  } catch (error) {
-    return { status: 'technical', summary: 'Не удалось выполнить проверку из-за технической ошибки.', issues: [{ message: error instanceof Error ? error.message : 'Неизвестная ошибка парсера.', line: null, column: null, snippet: null, suggestion: null }], checkedAt, bytes };
+
   }
 }
 
 function makeIssue(message: string, source: string): XmlIssue {
-  // 1. Извлекаем координаты, которые xmldom зашивает в виде @#[line:X,col:Y]
   const match = message.match(/@#\[line:(\d+),col:(\d+)\]/);
-  const line = match ? parseInt(match[1]!, 10) : null;
-  const column = match ? parseInt(match[2]!, 10) : null;
+  const line = match ? parseInt(match[1], 10) : null;
+  const column = match ? parseInt(match[2], 10) : null;
 
-  // 2. Очищаем сообщение от префиксов (fatalError:) и от технического хвоста с координатами
   const clean = message
     .replace(/^(?:fatalError|error|warning):\s*/i, '')
     .replace(/@#\[.*\]/, '')
