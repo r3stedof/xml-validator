@@ -37,24 +37,29 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
       locator: {},
       errorHandler: {
         warning: (message: string) => {
-          issues.push(makeIssue(message, source, null, null));
+          issues.push(makeIssue(message, source));
         },
         error: (message: string) => {
-          issues.push(makeIssue(message, source, null, null));
+          issues.push(makeIssue(message, source));
         },
         fatalError: (message: string) => {
-          issues.push(makeIssue(message, source, null, null));
+          issues.push(makeIssue(message, source));
         },
       },
-    });
 
-    const document = parser.parseFromString(source, 'application/xml');
+    const document = parser.parseFromString(source, 'text/xml');
 
     const root = document.documentElement;
     const parserIssues = issues;
-    if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
+   if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
-      if (!unique.length) unique.push(makeIssue('Не удалось разобрать XML-документ.', source, null, null));
+      
+      // Если массив ошибок пуст, но сработал триггер parsererror:
+      if (!unique.length) {
+        // Проверяем, нет ли текста ошибки внутри самого тега <parsererror>
+        const parsererrorText = root && root.nodeName === 'parsererror' ? root.textContent : null;
+        unique.push(makeIssue(parsererrorText || 'Не удалось разобрать XML-документ.', source));
+      }
       return { status: 'invalid', summary: `XML содержит ошибки (${unique.length}).`, issues: unique, checkedAt, bytes };
     }
     // A doctype may be present, but no external entity resolver is enabled.
@@ -64,11 +69,27 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
   }
 }
 
-function makeIssue(message: string, source: string, line: number | null, column: number | null): XmlIssue {
-  // xmldom's legacy error callback may not expose structured locations, so do not infer one from text.
-  const clean = message.replace(/^(?:fatalError|error|warning):\s*/i, '').trim();
-  return { message: clean, line, column, snippet: locateSnippet(source, line), suggestion: guessSuggestion(clean) };
+function makeIssue(message: string, source: string): XmlIssue {
+  // 1. Извлекаем координаты, которые xmldom зашивает в виде @#[line:X,col:Y]
+  const match = message.match(/@#\[line:(\d+),col:(\d+)\]/);
+  const line = match ? parseInt(match[1]!, 10) : null;
+  const column = match ? parseInt(match[2]!, 10) : null;
+
+  // 2. Очищаем сообщение от префиксов (fatalError:) и от технического хвоста с координатами
+  const clean = message
+    .replace(/^(?:fatalError|error|warning):\s*/i, '')
+    .replace(/@#\[.*\]/, '')
+    .trim();
+
+  return { 
+    message: clean, 
+    line, 
+    column, 
+    snippet: locateSnippet(source, line), 
+    suggestion: guessSuggestion(clean) 
+  };
 }
+
 function dedupeIssues(issues: XmlIssue[]): XmlIssue[] {
   return [...new Map(issues.map(i => [i.message, i])).values()];
 }
