@@ -25,34 +25,65 @@ function guessSuggestion(message: string): string | null {
   return null;
 }
 
+
 function hasUnclosedAttributeQuote(source: string): boolean {
-  let inTag = false;
-  let quote: string | null = null;
+  let i = 0;
 
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-
-    if (!inTag) {
-      if (
-        ch === '<' &&
-        source[i + 1] !== '!' &&
-        source[i + 1] !== '?'
-      ) {
-        inTag = true;
-      }
+  while (i < source.length) {
+    // Пропускаем XML-комментарии
+    if (source.startsWith('<!--', i)) {
+      const end = source.indexOf('-->', i + 4);
+      if (end === -1) return false;
+      i = end + 3;
       continue;
     }
 
-    if (quote) {
-      if (ch === quote) quote = null;
-    } else if (ch === '"' || ch === "'") {
-      quote = ch;
-    } else if (ch === '>') {
-      inTag = false;
+    // Пропускаем CDATA
+    if (source.startsWith('<![CDATA[', i)) {
+      const end = source.indexOf(']]>', i + 9);
+      if (end === -1) return false;
+      i = end + 3;
+      continue;
     }
+
+    // Пропускаем инструкции обработки
+    if (source.startsWith('<?', i)) {
+      const end = source.indexOf('?>', i + 2);
+      if (end === -1) return false;
+      i = end + 2;
+      continue;
+    }
+
+    if (source[i] !== '<') {
+      i++;
+      continue;
+    }
+
+    // Ищем конец тега, учитывая кавычки в атрибутах
+    i++;
+    let quote: string | null = null;
+
+    while (i < source.length) {
+      const ch = source[i];
+
+      if (quote !== null) {
+        if (ch === quote) quote = null;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === '>') {
+        break;
+      }
+
+      i++;
+    }
+
+    if (quote !== null) return true;
+    if (i >= source.length) return false;
+
+    i++;
   }
 
-  return quote !== null;
+  return false;
 }
 
 
@@ -176,12 +207,21 @@ const parserIssues = issues;
       'Замените обычный & на &amp; либо исправьте ссылку на сущность.',
   });
 }
+
 if (tagError) {
-  const alreadyReported = parserIssues.some(issue =>
-    /тег|элемент|tag|element|matching|closing/i.test(issue.message)
+  const alreadyReported = parserIssues.some(
+    issue => issue.message === tagError
   );
-if (!alreadyReported) {
-    parserIssues.push({
+
+  if (!alreadyReported) {
+    const specificIssues = parserIssues.filter(
+      issue =>
+        !/XML содержит синтаксическую ошибку\. Проверьте теги, атрибуты и кавычки\./i.test(
+          issue.message
+        )
+    );
+
+    specificIssues.push({
       message: tagError,
       line: null,
       column: null,
@@ -189,10 +229,15 @@ if (!alreadyReported) {
       suggestion:
         'Проверьте, что все открытые элементы закрыты, имена тегов совпадают и вложенность правильная.',
     });
+
+    parserIssues.splice(
+      0,
+      parserIssues.length,
+      ...specificIssues
+    );
   }
 }
-
-    if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
+if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
       if (!unique.length) {
         const parsererrorText = root && root.nodeName === 'parsererror' ? root.textContent : null;
