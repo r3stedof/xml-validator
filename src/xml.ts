@@ -107,18 +107,17 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
     const document = parser.parseFromString(source, 'text/xml');
     const root = document.documentElement;
     const parserIssues = issues;
-    
-if (parserIssues.length && !hasUnclosedAttributeQuote(source)) {
-  for (const issue of parserIssues) {
-    if (
-      issue.message === 'Не закрыта кавычка в значении атрибута XML.'
-    ) {
-      issue.message = 'XML содержит синтаксическую ошибку. Проверьте теги, атрибуты и кавычки.';
-      issue.suggestion =
-        'Проверьте соответствие открывающих и закрывающих тегов, а также правильность атрибутов.';
-    }
-  }
+  if (
+  parserIssues.length &&
+  !hasUnclosedAttributeQuote(source) &&
+  hasMismatchedTags(source)
+) {
+  parserIssues[0].message =
+    'Открывающий и закрывающий теги не совпадают.';
+  parserIssues[0].suggestion =
+    'Проверьте соответствие имён открывающих и закрывающих тегов и правильность их вложенности.';
 }
+
 
 
     if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
