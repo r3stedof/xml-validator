@@ -55,6 +55,32 @@ function hasUnclosedAttributeQuote(source: string): boolean {
   return quote !== null;
 }
 
+function hasMismatchedTags(source: string): boolean {
+  const stack: string[] = [];
+  const tokens = source.match(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\/?[\w:.-]+(?:\s[^<>]*?)?\/?>/g) ?? [];
+
+  for (const token of tokens) {
+    if (
+      token.startsWith('<!--') ||
+      token.startsWith('<?') ||
+      token.startsWith('<!') ||
+      token.endsWith('/>')
+    ) {
+      continue;
+    }
+
+    const closing = token.match(/^<\/\s*([\w:.-]+)/);
+    const opening = token.match(/^<\s*([\w:.-]+)/);
+
+    if (closing) {
+      if (stack.pop() !== closing[1]) return true;
+    } else if (opening) {
+      stack.push(opening[1]);
+    }
+  }
+
+  return stack.length > 0;
+}
 export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): ValidationResult {
   const bytes = new TextEncoder().encode(source).byteLength;
   const checkedAt = new Date().toISOString();
