@@ -81,6 +81,38 @@ function hasMismatchedTags(source: string): boolean {
 
   return stack.length > 0;
 }
+function hasInvalidEntityReference(source: string): boolean {
+  // Пропускаем комментарии, CDATA и инструкции обработки
+  const text = source
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '')
+    .replace(/<\?[\s\S]*?\?>/g, '');
+
+  const entityPattern =
+    /&([^;\s<>&]*)(;)?/g;
+
+  let match: RegExpExecArray | null;
+
+  while ((match = entityPattern.exec(text)) !== null) {
+    const name = match[1];
+    const hasSemicolon = match[2] === ';';
+
+    const predefined =
+      /^(amp|lt|gt|apos|quot)$/.test(name);
+
+    const decimal = /^#\d+$/.test(name);
+    const hexadecimal = /^#x[0-9a-fA-F]+$/.test(name);
+
+    if (
+      !hasSemicolon ||
+      !(predefined || decimal || hexadecimal)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
 export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): ValidationResult {
   const bytes = new TextEncoder().encode(source).byteLength;
   const checkedAt = new Date().toISOString();
@@ -108,6 +140,17 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
     const root = document.documentElement;
     
 const parserIssues = issues;
+    if (hasInvalidEntityReference(source)) {
+  parserIssues.push({
+    message:
+      'Некорректная XML-сущность: символ & должен быть экранирован.',
+    line: null,
+    column: null,
+    snippet: null,
+    suggestion:
+      'Замените обычный & на &amp; либо исправьте ссылку на сущность.',
+  });
+}
 
 if (
   !hasUnclosedAttributeQuote(source) &&
