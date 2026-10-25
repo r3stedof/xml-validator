@@ -77,6 +77,8 @@ function makeIssue(message: string, source: string): XmlIssue {
     .replace(/^(?:fatalError|error|warning):\s*/i, '')
     .replace(/@#\[.*\]/, '')
     .trim();
+  console.log('XML parser raw message:', message);
+  console.log('XML parser clean message:', clean);
 
   let userMessage = clean;
 
