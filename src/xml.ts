@@ -25,6 +25,36 @@ function guessSuggestion(message: string): string | null {
   return null;
 }
 
+function hasUnclosedAttributeQuote(source: string): boolean {
+  let inTag = false;
+  let quote: string | null = null;
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+
+    if (!inTag) {
+      if (
+        ch === '<' &&
+        source[i + 1] !== '!' &&
+        source[i + 1] !== '?'
+      ) {
+        inTag = true;
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '>') {
+      inTag = false;
+    }
+  }
+
+  return quote !== null;
+}
+
 export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): ValidationResult {
   const bytes = new TextEncoder().encode(source).byteLength;
   const checkedAt = new Date().toISOString();
@@ -51,6 +81,19 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
     const document = parser.parseFromString(source, 'text/xml');
     const root = document.documentElement;
     const parserIssues = issues;
+    
+if (parserIssues.length && !hasUnclosedAttributeQuote(source)) {
+  for (const issue of parserIssues) {
+    if (
+      issue.message === 'Не закрыта кавычка в значении атрибута XML.'
+    ) {
+      issue.message = 'XML содержит синтаксическую ошибку. Проверьте теги, атрибуты и кавычки.';
+      issue.suggestion =
+        'Проверьте соответствие открывающих и закрывающих тегов, а также правильность атрибутов.';
+    }
+  }
+}
+
 
     if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
