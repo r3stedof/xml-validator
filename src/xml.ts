@@ -140,10 +140,15 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
     const root = document.documentElement;
     
 const parserIssues = issues;
-    if (hasInvalidEntityReference(source)) {
+    if (
+  hasInvalidEntityReference(source) &&
+  !parserIssues.some(issue =>
+    /сущност/i.test(issue.message)
+  )
+) {
   parserIssues.push({
     message:
-      'Некорректная XML-сущность: символ & должен быть экранирован.',
+      'Некорректная XML-сущность. Проверьте специальные символы и ссылки на сущности.',
     line: null,
     column: null,
     snippet: null,
