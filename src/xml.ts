@@ -188,7 +188,8 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
     const root = document.documentElement;
     
 const parserIssues = issues;
-    const tagError = !hasUnclosedAttributeQuote(source)
+
+const tagError = !hasUnclosedAttributeQuote(source)
   ? findTagError(source)
   : null;
     if (
@@ -213,14 +214,15 @@ if (tagError) {
     issue => issue.message === tagError
   );
 
-  if (!alreadyReported) {
-    const specificIssues = parserIssues.filter(
-      issue =>
-        !/XML содержит синтаксическую ошибку\. Проверьте теги, атрибуты и кавычки\./i.test(
-          issue.message
-        )
-    );
+  const specificIssues = parserIssues.filter(
+    issue =>
+      issue.message !==
+        'XML содержит синтаксическую ошибку. Проверьте теги, атрибуты и кавычки.' &&
+      issue.message !==
+        'XML содержит синтаксическую ошибку. Проверьте структуру тегов и атрибутов.'
+  );
 
+  if (!alreadyReported) {
     specificIssues.push({
       message: tagError,
       line: null,
@@ -229,13 +231,13 @@ if (tagError) {
       suggestion:
         'Проверьте, что все открытые элементы закрыты, имена тегов совпадают и вложенность правильная.',
     });
-
-    parserIssues.splice(
-      0,
-      parserIssues.length,
-      ...specificIssues
-    );
   }
+
+  parserIssues.splice(
+    0,
+    parserIssues.length,
+    ...specificIssues
+  );
 }
 if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
@@ -264,15 +266,18 @@ function makeIssue(message: string, source: string): XmlIssue {
   .replace(/^(?:fatalError|error|warning):\s*/i, '')
   .replace(/@#\[.*\]/, '')
   .trim();
-  console.log('XML parser raw message:', message);
-  console.log('XML parser clean message:', clean);
 
   let userMessage = clean;
 
   
 
-if (/unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote/i.test(clean)) {
+if (
+  /unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote/i.test(clean) &&
+  hasUnclosedAttributeQuote(source)
+) {
   userMessage = 'Не закрыта кавычка в значении атрибута XML.';
+} else if (/unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote/i.test(clean)) {
+  userMessage = 'XML содержит синтаксическую ошибку. Проверьте структуру тегов и атрибутов.';
 } else if (/unclosed tag|unclosed element|unclosed root|unexpected end|end of data|premature end/i.test(clean)) {
   userMessage = 'Не закрыт XML-элемент. Проверьте, все ли открытые теги имеют закрывающие.';
 } else if (/mismatch|opening and ending tag|closing tag|end tag|unexpected close/i.test(clean)) {
