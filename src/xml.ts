@@ -73,17 +73,20 @@ function makeIssue(message: string, source: string): XmlIssue {
   const line = match ? parseInt(match[1], 10) : null;
   const column = match ? parseInt(match[2], 10) : null;
 
-  const clean = message
-    .replace(/^(?:fatalError|error|warning):\s*/i, '')
-    .replace(/@#\[.*\]/, '')
-    .trim();
+  
+   const clean = message
+  .replace(/^\[xmldom\s+(?:warning|error|fatalError)\]\s*/i, '')
+  .replace(/^(?:fatalError|error|warning):\s*/i, '')
+  .replace(/@#\[.*\]/, '')
+  .trim();
   console.log('XML parser raw message:', message);
   console.log('XML parser clean message:', clean);
 
   let userMessage = clean;
 
-  if (/attribute value no end|attribute.*quote|quoted|quote|end.*["']|["'].*match/i.test(clean)) {
-    userMessage = 'Не закрыта кавычка в значении атрибута XML.';
+  
+if (/unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote|end.*["']|["'].*match/i.test(clean)) {
+   userMessage = 'Не закрыта кавычка в значении атрибута XML.';
   } else if (/mismatch|matching|closing tag|end tag|unexpected close|unexpected end|opening tag|unclosed tag|element parse error/i.test(clean)) {
     userMessage = 'Открывающий и закрывающий теги не совпадают.';
   } else if (/entity|entities|not defined|reference/i.test(clean)) {
