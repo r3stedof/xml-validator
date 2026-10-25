@@ -106,20 +106,32 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
 
     const document = parser.parseFromString(source, 'text/xml');
     const root = document.documentElement;
-    const parserIssues = issues;
-  if (
-  parserIssues.length &&
+    
+const parserIssues = issues;
+
+if (
   !hasUnclosedAttributeQuote(source) &&
   hasMismatchedTags(source)
 ) {
-  parserIssues[0].message =
-    'Открывающий и закрывающий теги не совпадают.';
-  parserIssues[0].suggestion =
-    'Проверьте соответствие имён открывающих и закрывающих тегов и правильность их вложенности.';
+  const mismatchIssue: XmlIssue = {
+    message: 'Открывающий и закрывающий теги не совпадают.',
+    line: null,
+    column: null,
+    snippet: locateSnippet(source, null),
+    suggestion:
+      'Проверьте соответствие имён открывающих и закрывающих тегов и правильность их вложенности.',
+  };
+
+  if (parserIssues.length > 0) {
+    parserIssues[0] = {
+      ...parserIssues[0],
+      message: mismatchIssue.message,
+      suggestion: mismatchIssue.suggestion,
+    };
+  } else {
+    parserIssues.push(mismatchIssue);
+  }
 }
-
-
-
     if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
       if (!unique.length) {
