@@ -82,7 +82,7 @@ function makeIssue(message: string, source: string): XmlIssue {
 
   if (/attribute value no end|attribute.*quote|quoted|quote|end.*["']|["'].*match/i.test(clean)) {
     userMessage = 'Не закрыта кавычка в значении атрибута XML.';
-  } else if (/mismatch|matching|closing tag|end tag/i.test(clean)) {
+  } else if (/mismatch|matching|closing tag|end tag|unexpected close|unexpected end|opening tag|unclosed tag|element parse error/i.test(clean)) {
     userMessage = 'Открывающий и закрывающий теги не совпадают.';
   } else if (/entity|entities|not defined|reference/i.test(clean)) {
     userMessage = 'Некорректная XML-сущность. Проверьте специальные символы и ссылки на сущности.';
