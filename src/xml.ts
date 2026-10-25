@@ -218,7 +218,6 @@ if (/unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote
   userMessage = 'Не закрыт XML-элемент. Проверьте, все ли открытые теги имеют закрывающие.';
 } else if (/mismatch|opening and ending tag|closing tag|end tag|unexpected close/i.test(clean)) {
   userMessage = 'Открывающий и закрывающий теги не совпадают.';
-}
 } else if (/entity|entities|not defined|reference/i.test(clean)) {
   userMessage = 'Некорректная XML-сущность. Проверьте специальные символы и ссылки на сущности.';
 } else if (/document.*element|multiple roots|extra content/i.test(clean)) {
