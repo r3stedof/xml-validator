@@ -9,8 +9,8 @@ interface TagError {
   message: string;
   line: number;
   column: number;
+  index: number;
 }
-
 function locateSnippet(source: string, line: number | null): string | null {
   if (!line || line < 1) return null;
   const lines = source.split(/\r\n|\r|\n/);
@@ -93,11 +93,10 @@ function hasUnclosedAttributeQuote(source: string): boolean {
 
 
 
-function findTagError(source: string): TagError | null {
-  const stack: {
-    name: string;
-    index: number;
-  }[] = [];
+
+function findTagErrors(source: string): TagError[] {
+  const errors: TagError[] = [];
+  const stack: { name: string; index: number }[] = [];
 
   const tokens =
     /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\/?[\w:.-]+(?:\s[^<>]*?)?\/?>/g;
@@ -128,73 +127,88 @@ function findTagError(source: string): TagError | null {
     const closing = token.match(/^<\/\s*([\w:.-]+)/);
     const opening = token.match(/^<\s*([\w:.-]+)/);
 
-   if (closing) {
-  const expected = stack[stack.length - 1];
-  const position = getPosition(index);
+    if (closing) {
+      const expected = stack[stack.length - 1];
+      const position = getPosition(index);
 
-  if (!expected || expected.name !== closing[1]) {
-    return {
-      message: expected
-        ? `Ожидался закрывающий тег </${expected.name}>, но найден </${closing[1]}>.`
-        : `Найден закрывающий тег </${closing[1]}>, которому не соответствует открывающий тег.`,
-      ...position,
-    };
-  }
+      if (!expected || expected.name !== closing[1]) {
+        errors.push({
+          message: expected
+            ? `Ожидался закрывающий тег </${expected.name}>, но найден </${closing[1]}>.`
+            : `Найден закрывающий тег </${closing[1]}>, которому не соответствует открывающий тег.`,
+          ...position,
+          index,
+        });
+        continue;
+      }
 
-  stack.pop();
-} else if (opening) {
-      stack.push({
-        name: opening[1],
-        index,
-      });
+      stack.pop();
+    } else if (opening) {
+      stack.push({ name: opening[1], index });
     }
   }
 
-  if (stack.length > 0) {
-    const tag = stack[stack.length - 1];
-    const position = getPosition(tag.index);
-
-    return {
+  for (const tag of stack) {
+    errors.push({
       message: `Не закрыт элемент <${tag.name}>. Добавьте закрывающий тег </${tag.name}>.`,
-      ...position,
-    };
+      ...getPosition(tag.index),
+      index: tag.index,
+    });
   }
 
-  return null;
+  return [...new Map(
+    errors.map((error) => [`${error.message}:${error.index}`, error])
+  ).values()].sort((a, b) => a.index - b.index);
 }
 
-function hasInvalidEntityReference(source: string): boolean {
-  // Пропускаем комментарии, CDATA и инструкции обработки
-  const text = source
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '')
-    .replace(/<\?[\s\S]*?\?>/g, '');
 
-  const entityPattern =
-    /&([^;\s<>&]*)(;)?/g;
+interface EntityError {
+  message: string;
+  line: number;
+  column: number;
+  index: number;
+}
 
+function findInvalidEntityReferences(source: string): EntityError[] {
+  const errors: EntityError[] = [];
+
+  const masked = source.replace(
+    /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>/g,
+    (match) => match.replace(/[^\r\n]/g, ' ')
+  );
+
+  const allowedEntities = new Set([
+    'amp', 'lt', 'gt', 'quot', 'apos',
+  ]);
+
+  const pattern = /&([^;\s<>&]*)(;)?/g;
   let match: RegExpExecArray | null;
 
-  while ((match = entityPattern.exec(text)) !== null) {
+  while ((match = pattern.exec(masked)) !== null) {
     const name = match[1];
     const hasSemicolon = match[2] === ';';
 
-    const predefined =
-      /^(amp|lt|gt|apos|quot)$/.test(name);
+    const numeric =
+      /^#\d+$/.test(name) || /^#x[0-9a-f]+$/i.test(name);
 
-    const decimal = /^#\d+$/.test(name);
-    const hexadecimal = /^#x[0-9a-fA-F]+$/.test(name);
-
-    if (
-      !hasSemicolon ||
-      !(predefined || decimal || hexadecimal)
-    ) {
-      return true;
+    if (hasSemicolon && (allowedEntities.has(name) || numeric)) {
+      continue;
     }
+
+    const index = match.index;
+    const lines = source.slice(0, index).split(/\r\n|\r|\n/);
+
+    errors.push({
+      message: `Некорректная ссылка на XML-сущность: &${name}${hasSemicolon ? ';' : ''}.`,
+      line: lines.length,
+      column: lines[lines.length - 1].length + 1,
+      index,
+    });
   }
 
-  return false;
+  return errors;
 }
+
 export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): ValidationResult {
   const bytes = new TextEncoder().encode(source).byteLength;
   const checkedAt = new Date().toISOString();
@@ -223,57 +237,71 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
     
 const parserIssues = issues;
 
-const tagError = !hasUnclosedAttributeQuote(source)
-  ? findTagError(source)
-  : null;
-    if (
-  hasInvalidEntityReference(source) &&
-  !parserIssues.some(issue =>
-    /сущност/i.test(issue.message)
-  )
-) {
-  parserIssues.push({
-    message:
-      'Некорректная XML-сущность. Проверьте специальные символы и ссылки на сущности.',
-    line: null,
-    column: null,
-    snippet: null,
-    suggestion:
-      'Замените обычный & на &amp; либо исправьте ссылку на сущность.',
-  });
-}
+const entityErrors = findInvalidEntityReferences(source);
 
-
-if (tagError) {
+for (const error of entityErrors) {
   const alreadyReported = parserIssues.some(
-    issue => issue.message === tagError.message
+    (issue) =>
+      issue.line === error.line &&
+      issue.column === error.column &&
+      /сущност|entity|reference/i.test(issue.message)
   );
 
-  const specificIssues = parserIssues.filter(
-    issue =>
-      issue.message !==
-        'XML содержит синтаксическую ошибку. Проверьте теги, атрибуты и кавычки.' &&
-      issue.message !==
-        'XML содержит синтаксическую ошибку. Проверьте структуру тегов и атрибутов.'
+  if (!alreadyReported) {
+    parserIssues.push({
+      message: error.message,
+      line: error.line,
+      column: error.column,
+      snippet: locateSnippet(source, error.line),
+      suggestion:
+        'Замените обычный & на &amp; либо исправьте ссылку на XML-сущность.',
+    });
+  }
+}
+
+const tagErrors = hasUnclosedAttributeQuote(source)
+  ? []
+  : findTagErrors(source);
+
+const genericMessages = new Set([
+  'XML содержит синтаксическую ошибку. Проверьте теги, атрибуты и кавычки.',
+  'XML содержит синтаксическую ошибку. Проверьте структуру тегов и атрибутов.',
+]);
+
+const specificIssues = tagErrors.length
+  ? parserIssues.filter((issue) => !genericMessages.has(issue.message))
+  : [...parserIssues];
+
+for (const error of tagErrors) {
+  const alreadyReported = specificIssues.some(
+    (issue) =>
+      issue.line === error.line &&
+      issue.column === error.column &&
+      issue.message === error.message
   );
 
   if (!alreadyReported) {
     specificIssues.push({
-      message: tagError.message,
-      line: tagError.line,
-      column: tagError.column,
-      snippet: locateSnippet(source, tagError.line),
+      message: error.message,
+      line: error.line,
+      column: error.column,
+      snippet: locateSnippet(source, error.line),
       suggestion:
         'Проверьте, что имена открывающих и закрывающих тегов совпадают и вложенность правильная.',
     });
   }
-
-  parserIssues.splice(
-    0,
-    parserIssues.length,
-    ...specificIssues
-  );
 }
+
+specificIssues.sort((a, b) => {
+  if (a.line === null && b.line === null) return 0;
+  if (a.line === null) return 1;
+  if (b.line === null) return -1;
+  if (a.line !== b.line) return a.line - b.line;
+
+  return (a.column ?? 0) - (b.column ?? 0);
+});
+
+parserIssues.splice(0, parserIssues.length, ...specificIssues);
 
 if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
