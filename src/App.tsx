@@ -52,19 +52,57 @@ function App() {
     }, 30);
   }, [busy, source, maxMb, filename]);
 
-  const loadFile = useCallback(async (file?: File) => {
-    if (!file) return;
-    if (file.size > maxMb * 1024 * 1024) {
-      setResult({ status: 'technical', summary: `Файл превышает выбранный лимит ${maxMb} МБ.`, issues: [], checkedAt: new Date().toISOString(), bytes: file.size }); setNotice('Выберите файл меньшего размера или увеличьте лимит.'); return;
-    }
-    try {
-      const text = decodeXmlFile(await file.arrayBuffer());
-      setSource(text); setFilename(file.name); setFileSize(file.size); setResult(null); setNotice('Файл загружен. Запустите проверку, чтобы получить результат.');
-    } catch {
-      setResult({ status: 'technical', summary: 'Не удалось прочитать файл: неподдерживаемая или некорректная кодировка.', issues: [{ message: 'Файл не удалось декодировать как UTF-8 или BOM-маркированный UTF-16.', line: null, column: null, snippet: null, suggestion: 'Сохраните файл в UTF-8 или UTF-16 с BOM и попробуйте снова.' }], checkedAt: new Date().toISOString(), bytes: file.size });
-      setFilename(file.name); setFileSize(file.size); setNotice('Исходный текст не был заменён из-за ошибки кодировки.');
-    }
-  }, [maxMb]);
+  
+const loadFile = useCallback(async (file?: File) => {
+  if (!file) return;
+
+  // Разрешаем загружать только файлы с расширением .xml
+  if (!file.name.toLowerCase().endsWith('.xml')) {
+    setNotice('Неподдерживаемый формат файла. Выберите файл с расширением .xml.');
+    return;
+  }
+
+  // Проверяем размер файла
+  if (file.size > maxMb * 1024 * 1024) {
+    setResult({
+      status: 'technical',
+      summary: `Файл превышает выбранный лимит ${maxMb} МБ.`,
+      issues: [],
+      checkedAt: new Date().toISOString(),
+      bytes: file.size
+    });
+    setNotice('Выберите файл меньшего размера или увеличьте лимит.');
+    return;
+  }
+
+  try {
+    const text = decodeXmlFile(await file.arrayBuffer());
+
+    setSource(text);
+    setFilename(file.name);
+    setFileSize(file.size);
+    setResult(null);
+    setNotice('Файл загружен. Запустите проверку, чтобы получить результат.');
+  } catch {
+    setResult({
+      status: 'technical',
+      summary: 'Не удалось прочитать файл: неподдерживаемая или некорректная кодировка.',
+      issues: [{
+        message: 'Файл не удалось декодировать как UTF-8 или BOM-маркированный UTF-16.',
+        line: null,
+        column: null,
+        snippet: null,
+        suggestion: 'Сохраните файл в UTF-8 или UTF-16 с BOM и попробуйте снова.'
+      }],
+      checkedAt: new Date().toISOString(),
+      bytes: file.size
+    });
+
+    setFilename(file.name);
+    setFileSize(file.size);
+    setNotice('Исходный текст не был заменён из-за ошибки кодировки.');
+  }
+}, [maxMb]);
 
   const copy = async (text: string, success = 'Скопировано в буфер обмена') => {
     try { await navigator.clipboard.writeText(text); setNotice(success); }
@@ -86,7 +124,7 @@ function App() {
     <main id="top" className="main-wrap">
       <section className="hero"><div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot"/> БЕСПЛАТНЫЙ XML-ИНСТРУМЕНТ</div><h1>Ваш XML.<br/><span>Без ошибок.</span></h1><p>Проверяйте синтаксис XML, находите ошибки и приводите код в порядок — быстро, просто и прямо в браузере.</p><div className="hero-points"><span><ShieldCheck size={16}/> Файлы не покидают устройство</span><span><Zap size={16}/> Мгновенная проверка</span></div></div><div className="hero-visual" aria-hidden="true"><div className="visual-glow"/><div className="code-window"><div className="window-top"><div className="window-dots"><i/><i/><i/></div><span>document.xml</span><CheckCircle2 size={16}/></div><div className="mini-code"><div><b>1</b><span className="code-purple">&lt;?xml</span> <span className="code-blue">version</span>=<span className="code-green">"1.0"</span><span className="code-purple">?&gt;</span></div><div><b>2</b><span className="code-purple">&lt;catalog&gt;</span></div><div><b>3</b>　<span className="code-purple">&lt;item</span> <span className="code-blue">id</span>=<span className="code-green">"42"</span><span className="code-purple">&gt;</span></div><div><b>4</b>　　<span className="code-purple">&lt;name&gt;</span>Пример<span className="code-purple">&lt;/name&gt;</span></div><div><b>5</b>　<span className="code-purple">&lt;/item&gt;</span></div><div><b>6</b><span className="code-purple">&lt;/catalog&gt;</span></div></div><div className="valid-chip"><span><Check size={14}/></span><div><strong>Синтаксис корректен</strong><small>Проверка завершена успешно</small></div></div></div></div></section>
       <section className="workspace" id="editor"><div className="workspace-heading"><div><div className="section-kicker">РАБОЧАЯ ОБЛАСТЬ</div><h2>Проверка XML</h2><p>Загрузите файл или вставьте код — всё готово к проверке.</p></div><div className="limit-control"><label htmlFor="max-size">Макс. размер файла</label><select id="max-size" value={maxMb} onChange={e => setMaxMb(Number(e.target.value))}><option value={1}>1 МБ</option><option value={5}>5 МБ</option><option value={10}>10 МБ</option><option value={20}>20 МБ</option></select></div></div>
-        <div className="upload-zone" onDragOver={e => {e.preventDefault();setDragging(true)}} onDragLeave={() => setDragging(false)} onDrop={e => {e.preventDefault();setDragging(false);void loadFile(e.dataTransfer.files[0])}} data-dragging={dragging} role="region" aria-label="Загрузка XML-файла"><div className="upload-icon"><UploadCloud size={22}/></div><div className="upload-copy"><strong>Перетащите XML-файл сюда</strong><span>или выберите его на устройстве · содержимое файла важнее расширения</span></div><button className="button button-outline" onClick={() => inputRef.current?.click()}><FolderOpen size={16}/> Выбрать файл</button><input ref={inputRef} type="file" hidden onChange={e => {void loadFile(e.target.files?.[0]);e.currentTarget.value=''}} aria-label="Выбрать файл для проверки"/></div>
+        <div className="upload-zone" onDragOver={e => {e.preventDefault();setDragging(true)}} onDragLeave={() => setDragging(false)} onDrop={e => {e.preventDefault();setDragging(false);void loadFile(e.dataTransfer.files[0])}} data-dragging={dragging} role="region" aria-label="Загрузка XML-файла"><div className="upload-icon"><UploadCloud size={22}/></div><div className="upload-copy"><strong>Перетащите XML-файл сюда</strong><span>или выберите файл с расширением .xml</span></div><button className="button button-outline" onClick={() => inputRef.current?.click()}><FolderOpen size={16}/> Выбрать файл</button><input ref={inputRef} type="file" accept=".xml" hidden onChange={e => {void loadFile(e.target.files?.[0]);e.currentTarget.value=''}} aria-label="Выбрать файл для проверки"/></div>
         {filename && <div className="file-pill"><FileCode2 size={17}/><span className="file-name">{filename}</span><span className="file-size">{fileSize === null ? '' : formatBytes(fileSize)}</span><button onClick={() => {setFilename(null);setFileSize(null);setNotice('Файл отвязан. Текст в редакторе сохранён.')}} aria-label="Убрать имя файла"><X size={16}/></button></div>}
         <div className="editor-card"><div className="editor-toolbar"><div className="editor-file"><span className="xml-file-icon">&lt;/&gt;</span><span>{filename || 'untitled.xml'}</span><span className="unsaved-dot" title="Редактируется локально"/></div><div className="editor-actions"><button onClick={() => void copy(source, 'XML скопирован')} title="Скопировать XML"><Clipboard size={15}/><span>Копировать</span></button><button onClick={() => {try {const pretty = formatXmlSource(source, maxMb * 1024 * 1024);setSource(pretty);setNotice('XML отформатирован.');} catch {setNotice('Форматирование невозможно: сначала исправьте ошибки синтаксиса. Исходный текст сохранён.')}}} title="Форматировать XML"><Sparkles size={15}/><span>Форматировать</span></button><button onClick={() => saveFile((filename || 'document.xml').replace(/\.[^.]+$/, '') + '.xml', source, 'application/xml;charset=utf-8')} title="Скачать XML"><ArrowDownToLine size={15}/><span>Скачать</span></button></div></div><div className="codemirror-wrap"><CodeMirror value={source} height="360px" theme={dark ? oneDark : 'light'} extensions={extensions} onChange={value => {setSource(value);setResult(null)}} basicSetup={{lineNumbers:true,foldGutter:true,highlightActiveLine:true,autocompletion:true,tabSize:2}} aria-label="Редактор XML"/></div><div className="editor-footer"><span><span className="footer-status-dot"/> XML · UTF-8</span><span>{source.split('\n').length} строк · {formatBytes(new TextEncoder().encode(source).byteLength)}</span></div></div>
         <div className="action-row"><button className="button button-primary" onClick={check} disabled={busy || !source.trim()}>{busy ? <span className="spinner"/> : <CheckCircle2 size={18}/>} {busy ? 'Проверяем XML…' : 'Проверить XML'}<span className="shortcut">⌘ ↵</span></button><button className="button button-ghost" onClick={() => {setSource('');setFilename(null);setFileSize(null);setResult(null);setNotice('Редактор очищен.')}}><RotateCcw size={16}/> Очистить</button><button className="button button-ghost sample-button" onClick={() => {setSource(EXAMPLE);setFilename(null);setFileSize(null);setResult(null);setNotice('Пример XML загружен.')}}>Загрузить пример</button><span className="action-note"><ShieldCheck size={15}/> Локальная проверка</span></div>
