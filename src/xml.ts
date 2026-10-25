@@ -5,6 +5,11 @@ export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 export type ValidationStatus = 'valid' | 'invalid' | 'technical';
 export interface XmlIssue { message: string; line: number | null; column: number | null; snippet: string | null; suggestion: string | null }
 export interface ValidationResult { status: ValidationStatus; summary: string; issues: XmlIssue[]; checkedAt: string; bytes: number }
+interface TagError {
+  message: string;
+  line: number;
+  column: number;
+}
 
 function locateSnippet(source: string, line: number | null): string | null {
   if (!line || line < 1) return null;
@@ -87,15 +92,30 @@ function hasUnclosedAttributeQuote(source: string): boolean {
 }
 
 
-function findTagError(source: string): string | null {
-  const stack: string[] = [];
+
+function findTagError(source: string): TagError | null {
+  const stack: {
+    name: string;
+    index: number;
+  }[] = [];
 
   const tokens =
-    source.match(
-      /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\/?[\w:.-]+(?:\s[^<>]*?)?\/?>/g
-    ) ?? [];
+    /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\/?[\w:.-]+(?:\s[^<>]*?)?\/?>/g;
 
-  for (const token of tokens) {
+  const getPosition = (index: number) => {
+    const before = source.slice(0, index);
+    const lines = before.split(/\r\n|\r|\n/);
+
+    return {
+      line: lines.length,
+      column: lines[lines.length - 1].length + 1,
+    };
+  };
+
+  for (const match of source.matchAll(tokens)) {
+    const token = match[0];
+    const index = match.index;
+
     if (
       token.startsWith('<!--') ||
       token.startsWith('<?') ||
@@ -108,22 +128,36 @@ function findTagError(source: string): string | null {
     const closing = token.match(/^<\/\s*([\w:.-]+)/);
     const opening = token.match(/^<\s*([\w:.-]+)/);
 
-    if (closing) {
-      const expected = stack.pop();
+   if (closing) {
+  const expected = stack[stack.length - 1];
+  const position = getPosition(index);
 
-      if (expected !== closing[1]) {
-        return expected
-          ? `Ожидался закрывающий тег </${expected}>, но найден </${closing[1]}>.`
-          : `Найден закрывающий тег </${closing[1]}>, которому не соответствует открывающий тег.`;
-      }
-    } else if (opening) {
-      stack.push(opening[1]);
+  if (!expected || expected.name !== closing[1]) {
+    return {
+      message: expected
+        ? `Ожидался закрывающий тег </${expected.name}>, но найден </${closing[1]}>.`
+        : `Найден закрывающий тег </${closing[1]}>, которому не соответствует открывающий тег.`,
+      ...position,
+    };
+  }
+
+  stack.pop();
+} else if (opening) {
+      stack.push({
+        name: opening[1],
+        index,
+      });
     }
   }
 
   if (stack.length > 0) {
     const tag = stack[stack.length - 1];
-    return `Не закрыт элемент <${tag}>. Добавьте закрывающий тег </${tag}>.`;
+    const position = getPosition(tag.index);
+
+    return {
+      message: `Не закрыт элемент <${tag.name}>. Добавьте закрывающий тег </${tag.name}>.`,
+      ...position,
+    };
   }
 
   return null;
@@ -209,9 +243,10 @@ const tagError = !hasUnclosedAttributeQuote(source)
   });
 }
 
+
 if (tagError) {
   const alreadyReported = parserIssues.some(
-    issue => issue.message === tagError
+    issue => issue.message === tagError.message
   );
 
   const specificIssues = parserIssues.filter(
@@ -224,12 +259,12 @@ if (tagError) {
 
   if (!alreadyReported) {
     specificIssues.push({
-      message: tagError,
-      line: null,
-      column: null,
-      snippet: null,
+      message: tagError.message,
+      line: tagError.line,
+      column: tagError.column,
+      snippet: locateSnippet(source, tagError.line),
       suggestion:
-        'Проверьте, что все открытые элементы закрыты, имена тегов совпадают и вложенность правильная.',
+        'Проверьте, что имена открывающих и закрывающих тегов совпадают и вложенность правильная.',
     });
   }
 
@@ -239,6 +274,7 @@ if (tagError) {
     ...specificIssues
   );
 }
+
 if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
       if (!unique.length) {
