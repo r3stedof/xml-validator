@@ -55,9 +55,14 @@ function hasUnclosedAttributeQuote(source: string): boolean {
   return quote !== null;
 }
 
-function hasMismatchedTags(source: string): boolean {
+
+function findTagError(source: string): string | null {
   const stack: string[] = [];
-  const tokens = source.match(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\/?[\w:.-]+(?:\s[^<>]*?)?\/?>/g) ?? [];
+
+  const tokens =
+    source.match(
+      /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\/?[\w:.-]+(?:\s[^<>]*?)?\/?>/g
+    ) ?? [];
 
   for (const token of tokens) {
     if (
@@ -73,14 +78,26 @@ function hasMismatchedTags(source: string): boolean {
     const opening = token.match(/^<\s*([\w:.-]+)/);
 
     if (closing) {
-      if (stack.pop() !== closing[1]) return true;
+      const expected = stack.pop();
+
+      if (expected !== closing[1]) {
+        return expected
+          ? `Ожидался закрывающий тег </${expected}>, но найден </${closing[1]}>.`
+          : `Найден закрывающий тег </${closing[1]}>, которому не соответствует открывающий тег.`;
+      }
     } else if (opening) {
       stack.push(opening[1]);
     }
   }
 
-  return stack.length > 0;
+  if (stack.length > 0) {
+    const tag = stack[stack.length - 1];
+    return `Не закрыт элемент <${tag}>. Добавьте закрывающий тег </${tag}>.`;
+  }
+
+  return null;
 }
+
 function hasInvalidEntityReference(source: string): boolean {
   // Пропускаем комментарии, CDATA и инструкции обработки
   const text = source
@@ -140,6 +157,9 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
     const root = document.documentElement;
     
 const parserIssues = issues;
+    const tagError = !hasUnclosedAttributeQuote(source)
+  ? findTagError(source)
+  : null;
     if (
   hasInvalidEntityReference(source) &&
   !parserIssues.some(issue =>
@@ -156,28 +176,22 @@ const parserIssues = issues;
       'Замените обычный & на &amp; либо исправьте ссылку на сущность.',
   });
 }
-
-if (
-  !hasUnclosedAttributeQuote(source) &&
-  hasMismatchedTags(source)
-) {
-  const mismatchIssue: XmlIssue = {
-    message: 'Обнаружена ошибка в открывающих и закрывающих тегах.',
-    line: null,
-    column: null,
-    snippet: locateSnippet(source, null),
-    suggestion:
-      'Проверьте, что каждый открытый элемент закрыт, имена тегов совпадают и вложенность элементов правильная.',
-  };
-
+if (tagError) {
   const alreadyReported = parserIssues.some(issue =>
     /тег|элемент|tag|element|matching|closing/i.test(issue.message)
   );
-
-  if (!alreadyReported) {
-    parserIssues.push(mismatchIssue);
+if (!alreadyReported) {
+    parserIssues.push({
+      message: tagError,
+      line: null,
+      column: null,
+      snippet: null,
+      suggestion:
+        'Проверьте, что все открытые элементы закрыты, имена тегов совпадают и вложенность правильная.',
+    });
   }
 }
+
     if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
       if (!unique.length) {
