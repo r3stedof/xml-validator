@@ -162,21 +162,19 @@ if (
   hasMismatchedTags(source)
 ) {
   const mismatchIssue: XmlIssue = {
-    message: 'Открывающий и закрывающий теги не совпадают.',
+    message: 'Обнаружена ошибка в открывающих и закрывающих тегах.',
     line: null,
     column: null,
     snippet: locateSnippet(source, null),
     suggestion:
-      'Проверьте соответствие имён открывающих и закрывающих тегов и правильность их вложенности.',
+      'Проверьте, что каждый открытый элемент закрыт, имена тегов совпадают и вложенность элементов правильная.',
   };
 
-  if (parserIssues.length > 0) {
-    parserIssues[0] = {
-      ...parserIssues[0],
-      message: mismatchIssue.message,
-      suggestion: mismatchIssue.suggestion,
-    };
-  } else {
+  const alreadyReported = parserIssues.some(issue =>
+    /тег|элемент|tag|element|matching|closing/i.test(issue.message)
+  );
+
+  if (!alreadyReported) {
     parserIssues.push(mismatchIssue);
   }
 }
@@ -216,8 +214,11 @@ function makeIssue(message: string, source: string): XmlIssue {
 
 if (/unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote/i.test(clean)) {
   userMessage = 'Не закрыта кавычка в значении атрибута XML.';
-} else if (/mismatch|opening and ending tag|closing tag|end tag|unexpected close|unexpected end|unclosed tag/i.test(clean)) {
+} else if (/unclosed tag|unclosed element|unclosed root|unexpected end|end of data|premature end/i.test(clean)) {
+  userMessage = 'Не закрыт XML-элемент. Проверьте, все ли открытые теги имеют закрывающие.';
+} else if (/mismatch|opening and ending tag|closing tag|end tag|unexpected close/i.test(clean)) {
   userMessage = 'Открывающий и закрывающий теги не совпадают.';
+}
 } else if (/entity|entities|not defined|reference/i.test(clean)) {
   userMessage = 'Некорректная XML-сущность. Проверьте специальные символы и ссылки на сущности.';
 } else if (/document.*element|multiple roots|extra content/i.test(clean)) {
