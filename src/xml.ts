@@ -30,10 +30,10 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
   const checkedAt = new Date().toISOString();
   if (bytes > maxBytes) return { status: 'technical', summary: `Размер документа превышает лимит ${formatBytes(maxBytes)}.`, issues: [], checkedAt, bytes };
   if (!source.trim()) return { status: 'invalid', summary: 'XML-документ пуст.', issues: [{ message: 'Нет содержимого для разбора.', line: null, column: null, snippet: null, suggestion: 'Вставьте XML-код или выберите файл.' }], checkedAt, bytes };
-  // The parser runs locally. No custom entity resolver is configured; external resources are never fetched.
+  
   const issues: XmlIssue[] = [];
   try {
-      const parser = new DOMParser({
+    const parser = new DOMParser({
       locator: {},
       errorHandler: {
         warning: (message: string) => {
@@ -46,24 +46,24 @@ export function validateXml(source: string, maxBytes = DEFAULT_MAX_BYTES): Valid
           issues.push(makeIssue(message, source));
         },
       },
+    });
 
-        const document = parser.parseFromString(source, 'text/xml');
-
+    const document = parser.parseFromString(source, 'text/xml');
     const root = document.documentElement;
     const parserIssues = issues;
-    
+
     if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
-      
       if (!unique.length) {
         const parsererrorText = root && root.nodeName === 'parsererror' ? root.textContent : null;
         unique.push(makeIssue(parsererrorText || 'Не удалось разобрать XML-документ.', source));
       }
       return { status: 'invalid', summary: `XML содержит ошибки (${unique.length}).`, issues: unique, checkedAt, bytes };
     }
-    
-    return { status: 'valid', summary: 'Документ успешно разобран. Синтаксис XML корректен.', issues: [], checkedAt, bytes };
 
+    return { status: 'valid', summary: 'Документ успешно разобран. Синтаксис XML корректен.', issues: [], checkedAt, bytes };
+  } catch (error) {
+    return { status: 'technical', summary: 'Не удалось выполнить проверку из-за технической ошибки.', issues: [{ message: error instanceof Error ? error.message : 'Неизвестная ошибка парсера.', line: null, column: null, snippet: null, suggestion: null }], checkedAt, bytes };
   }
 }
 
@@ -85,6 +85,7 @@ function makeIssue(message: string, source: string): XmlIssue {
     suggestion: guessSuggestion(clean) 
   };
 }
+
 
 function dedupeIssues(issues: XmlIssue[]): XmlIssue[] {
   return [...new Map(issues.map(i => [i.message, i])).values()];
