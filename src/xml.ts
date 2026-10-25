@@ -85,25 +85,25 @@ function makeIssue(message: string, source: string): XmlIssue {
   let userMessage = clean;
 
   
-if (/unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote|end.*["']|["'].*match/i.test(clean)) {
-   userMessage = 'Не закрыта кавычка в значении атрибута XML.';
-  } else if (/mismatch|matching|closing tag|end tag|unexpected close|unexpected end|opening tag|unclosed tag|element parse error/i.test(clean)) {
-    userMessage = 'Открывающий и закрывающий теги не совпадают.';
-  } else if (/entity|entities|not defined|reference/i.test(clean)) {
-    userMessage = 'Некорректная XML-сущность. Проверьте специальные символы и ссылки на сущности.';
-  } else if (/document.*element|multiple roots|extra content/i.test(clean)) {
-    userMessage = 'XML должен содержать один корневой элемент.';
-  } else if (/comment/i.test(clean)) {
-    userMessage = 'Проверьте комментарий XML: он должен быть корректно закрыт.';
-  } else if (/namespace|prefix/i.test(clean)) {
-    userMessage = 'Проверьте объявление пространства имён XML.';
-  } else if (clean) {
-    userMessage = 'XML содержит синтаксическую ошибку. Проверьте теги, атрибуты и кавычки.';
-  } else {
-    userMessage = 'Не удалось разобрать XML-документ.';
-  }
 
-  return {
+if (/unclosed xml attribute|attribute value no end|attribute.*quote|quoted|quote/i.test(clean)) {
+  userMessage = 'Не закрыта кавычка в значении атрибута XML.';
+} else if (/mismatch|opening and ending tag|closing tag|end tag|unexpected close|unexpected end|unclosed tag/i.test(clean)) {
+  userMessage = 'Открывающий и закрывающий теги не совпадают.';
+} else if (/entity|entities|not defined|reference/i.test(clean)) {
+  userMessage = 'Некорректная XML-сущность. Проверьте специальные символы и ссылки на сущности.';
+} else if (/document.*element|multiple roots|extra content/i.test(clean)) {
+  userMessage = 'XML должен содержать один корневой элемент.';
+} else if (/comment/i.test(clean)) {
+  userMessage = 'Проверьте комментарий XML: он должен быть корректно закрыт.';
+} else if (/namespace|prefix/i.test(clean)) {
+  userMessage = 'Проверьте объявление пространства имён XML.';
+} else if (clean) {
+  userMessage = 'XML содержит синтаксическую ошибку. Проверьте теги, атрибуты и кавычки.';
+} else {
+  userMessage = 'Не удалось разобрать XML-документ.';
+}
+    return {
     message: userMessage,
     line,
     column,
