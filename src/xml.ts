@@ -91,9 +91,6 @@ function hasUnclosedAttributeQuote(source: string): boolean {
   return false;
 }
 
-
-
-
 function findTagErrors(source: string): TagError[] {
   const errors: TagError[] = [];
   const stack: { name: string; index: number }[] = [];
@@ -128,26 +125,68 @@ function findTagErrors(source: string): TagError[] {
     const opening = token.match(/^<\s*([\w:.-]+)/);
 
     if (closing) {
-      const expected = stack[stack.length - 1];
+      const closingName = closing[1];
       const position = getPosition(index);
 
-      if (!expected || expected.name !== closing[1]) {
+      if (stack.length === 0) {
         errors.push({
-          message: expected
-            ? `Ожидался закрывающий тег </${expected.name}>, но найден </${closing[1]}>.`
-            : `Найден закрывающий тег </${closing[1]}>, которому не соответствует открывающий тег.`,
+          message: `Найден закрывающий тег </${closingName}>, которому не соответствует открывающий тег.`,
           ...position,
           index,
         });
         continue;
       }
 
-      stack.pop();
-    } else if (opening) {
-      stack.push({ name: opening[1], index });
+      const top = stack[stack.length - 1];
+
+      if (top.name === closingName) {
+        stack.pop();
+        continue;
+      }
+
+      // Ищем совпадающий открывающий тег глубже в стеке.
+      let matchingIndex = -1;
+
+      for (let i = stack.length - 2; i >= 0; i--) {
+        if (stack[i].name === closingName) {
+          matchingIndex = i;
+          break;
+        }
+      }
+
+      if (matchingIndex !== -1) {
+        // Вложенные элементы выше совпадающего тега остались незакрыты.
+        for (let i = stack.length - 1; i > matchingIndex; i--) {
+          const unclosed = stack[i];
+
+          errors.push({
+            message: `Не закрыт элемент <${unclosed.name}> перед </${closingName}>.`,
+            ...getPosition(unclosed.index),
+            index: unclosed.index,
+          });
+        }
+
+        stack.length = matchingIndex;
+      } else {
+        errors.push({
+          message: `Ожидался закрывающий тег </${top.name}>, но найден </${closingName}>.`,
+          ...position,
+          index,
+        });
+      }
+
+      continue;
+    }
+
+    if (opening) {
+      stack.push({
+        name: opening[1],
+        index,
+      });
     }
   }
 
+  // Оставшиеся элементы не были закрыты до конца документа.
   for (const tag of stack) {
     errors.push({
       message: `Не закрыт элемент <${tag.name}>. Добавьте закрывающий тег </${tag.name}>.`,
@@ -156,19 +195,18 @@ function findTagErrors(source: string): TagError[] {
     });
   }
 
-  return [...new Map(
-    errors.map((error) => [`${error.message}:${error.index}`, error])
-  ).values()].sort((a, b) => a.index - b.index);
+  return [
+    ...new Map(
+      errors.map((error) => [`${error.message}:${error.index}`, error])
+    ).values(),
+  ].sort((a, b) => a.index - b.index);
 }
-
-
 interface EntityError {
   message: string;
   line: number;
   column: number;
   index: number;
 }
-
 function findInvalidEntityReferences(source: string): EntityError[] {
   const errors: EntityError[] = [];
 
@@ -241,22 +279,30 @@ const entityErrors = findInvalidEntityReferences(source);
 
 for (const error of entityErrors) {
   const alreadyReported = parserIssues.some(
-    (issue) =>
-      issue.line === error.line &&
-      issue.column === error.column &&
-      /сущност|entity|reference/i.test(issue.message)
+    (issue) => {
+      const samePosition =
+        issue.line === error.line &&
+        issue.column === error.column;
+
+      const isEntityIssue =
+        /сущност|entity|reference/i.test(issue.message);
+
+      return samePosition && isEntityIssue;
+    }
   );
 
-  if (!alreadyReported) {
-    parserIssues.push({
-      message: error.message,
-      line: error.line,
-      column: error.column,
-      snippet: locateSnippet(source, error.line),
-      suggestion:
-        'Замените обычный & на &amp; либо исправьте ссылку на XML-сущность.',
-    });
+  if (alreadyReported) {
+    continue;
   }
+
+  parserIssues.push({
+    message: error.message,
+    line: error.line,
+    column: error.column,
+    snippet: locateSnippet(source, error.line),
+    suggestion:
+      'Замените обычный & на &amp; либо исправьте ссылку на XML-сущность.',
+  });
 }
 
 const tagErrors = hasUnclosedAttributeQuote(source)
@@ -301,8 +347,8 @@ specificIssues.sort((a, b) => {
   return (a.column ?? 0) - (b.column ?? 0);
 });
 
-parserIssues.splice(0, parserIssues.length, ...specificIssues);
-
+const finalIssues = dedupeIssues(specificIssues);
+parserIssues.splice(0, parserIssues.length, ...finalIssues);
 if (!root || root.nodeName === 'parsererror' || parserIssues.length) {
       const unique = dedupeIssues(parserIssues.length ? parserIssues : issues);
       if (!unique.length) {
@@ -370,7 +416,31 @@ if (
 }
 
 function dedupeIssues(issues: XmlIssue[]): XmlIssue[] {
-  return [...new Map(issues.map(i => [i.message, i])).values()];
+  const seen = new Set<string>();
+  const result: XmlIssue[] = [];
+
+  for (const issue of issues) {
+    const normalizedMessage = /сущност|entity|reference/i.test(
+      issue.message
+    )
+      ? 'xml-entity-error'
+      : issue.message;
+
+    const key = [
+      normalizedMessage,
+      issue.line ?? '',
+      issue.column ?? '',
+    ].join(':');
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(issue);
+  }
+
+  return result;
 }
 export function formatXmlSource(source: string, maxBytes = DEFAULT_MAX_BYTES): string {
   const result = validateXml(source, maxBytes);
